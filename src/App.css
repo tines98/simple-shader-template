@@ -1,0 +1,10 @@
+.canvasContainer {
+  background-color: #253d31;
+  border: 4px solid black;
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  text-align: center;
+}
