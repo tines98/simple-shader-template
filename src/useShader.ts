@@ -1,21 +1,46 @@
 import { useEffect, useMemo, useState } from "react"
 import { box } from "./shapes"
 
+// Separate types into interfaces
+interface Camera {
+  position: Vector3
+  rotation: Vector3
+}
+
+interface Vector3 {
+  x: number
+  y: number
+  z: number
+}
+
+interface MouseState {
+  isDragging: boolean
+  lastPosition: { x: number; y: number }
+}
+
 function useShader(width: number, height: number) {
-  const [vertShaderPath, setVertShaderPath] = useState<string | undefined>()
-  const [fragShaderPath, setFragShaderPath] = useState<string | undefined>()
-  const [vertShaderSource, setVertShaderSource] = useState("")
-  const [fragShaderSource, setFragShaderSource] = useState("")
+  // Group related state
+  const [shaderState, setShaderState] = useState({
+    vertPath: undefined as string | undefined,
+    fragPath: undefined as string | undefined,
+    vertSource: "",
+    fragSource: "",
+  })
+
   const [gl, setGl] = useState<WebGLRenderingContext | null | undefined>()
   const vertices = box
 
-  // Add camera state
-  const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0, z: -3 })
-  const [cameraRotation, setCameraRotation] = useState({ x: 0, y: 0, z: 0 })
+  // Group camera state
+  const [camera, setCamera] = useState<Camera>({
+    position: { x: 0, y: 0, z: -3 },
+    rotation: { x: 0, y: 0, z: 0 },
+  })
 
-  // Add mouse control state
-  const [isDragging, setIsDragging] = useState(false)
-  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 })
+  // Group mouse state
+  const [mouseState, setMouseState] = useState<MouseState>({
+    isDragging: false,
+    lastPosition: { x: 0, y: 0 },
+  })
 
   // Add matrix utilities
   const createModelViewMatrix = (
@@ -123,31 +148,35 @@ function useShader(width: number, height: number) {
 
   const vertexShader = useMemo(() => {
     if (!gl) return null
-    if (!vertShaderSource) return null
-    return compileShader(gl, vertShaderSource, gl.VERTEX_SHADER)
-  }, [vertShaderSource])
+    if (!shaderState.vertSource) return null
+    return compileShader(gl, shaderState.vertSource, gl.VERTEX_SHADER)
+  }, [shaderState.vertSource])
 
   const fragmentShader = useMemo(() => {
     if (!gl) return null
-    if (!fragShaderSource) return null
-    return compileShader(gl, fragShaderSource, gl.FRAGMENT_SHADER)
-  }, [fragShaderSource])
+    if (!shaderState.fragSource) return null
+    return compileShader(gl, shaderState.fragSource, gl.FRAGMENT_SHADER)
+  }, [shaderState.fragSource])
 
-  // Load Vertex
+  // Separate shader loading logic
   useEffect(() => {
-    if (!vertShaderPath) return
-    fetch(vertShaderPath)
-      .then((r) => r.text())
-      .then((r) => setVertShaderSource(r))
-  }, [vertShaderPath])
+    const loadShader = async (path: string | undefined) => {
+      if (!path) return ""
+      const response = await fetch(path)
+      return response.text()
+    }
 
-  // Load Fragment
-  useEffect(() => {
-    if (!fragShaderPath) return
-    fetch(fragShaderPath)
-      .then((r) => r.text())
-      .then((r) => setFragShaderSource(r))
-  }, [fragShaderPath])
+    Promise.all([
+      loadShader(shaderState.vertPath),
+      loadShader(shaderState.fragPath),
+    ]).then(([vertSource, fragSource]) => {
+      setShaderState((prev) => ({
+        ...prev,
+        vertSource,
+        fragSource,
+      }))
+    })
+  }, [shaderState.vertPath, shaderState.fragPath])
 
   useEffect(() => {
     if (!gl || !vertexShader || !fragmentShader) return
@@ -172,18 +201,16 @@ function useShader(width: number, height: number) {
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)
 
     const positionLocation = gl.getAttribLocation(program, "position")
-    // Update vertex attribute pointer to handle 3 coordinates (x, y, z)
     gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0)
     gl.enableVertexAttribArray(positionLocation)
 
     gl.useProgram(program)
 
-    // Add perspective matrix uniform
     const perspectiveMatrix = createPerspectiveMatrix(
-      (60 * Math.PI) / 180, // 45 degree field of view
-      width / height, // aspect ratio
-      0.1, // near plane
-      100.0 // far plane
+      (60 * Math.PI) / 180,
+      width / height,
+      0.1,
+      100.0
     )
     const perspectiveLocation = gl.getUniformLocation(
       program,
@@ -191,40 +218,53 @@ function useShader(width: number, height: number) {
     )
     gl.uniformMatrix4fv(perspectiveLocation, false, perspectiveMatrix)
 
-    // Mouse event handlers
     const handleMouseDown = (e: MouseEvent) => {
-      setIsDragging(true)
-      setLastMousePos({ x: e.clientX, y: e.clientY })
+      setMouseState((prev) => ({
+        ...prev,
+        isDragging: true,
+        lastPosition: { x: e.clientX, y: e.clientY },
+      }))
     }
 
     const handleMouseUp = () => {
-      setIsDragging(false)
+      setMouseState((prev) => ({
+        ...prev,
+        isDragging: false,
+      }))
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return
+      if (!mouseState.isDragging) return
 
-      const deltaX = e.clientX - lastMousePos.x
-      const deltaY = e.clientY - lastMousePos.y
+      const deltaX = e.clientX - mouseState.lastPosition.x
+      const deltaY = e.clientY - mouseState.lastPosition.y
 
-      setCameraRotation((prev) => ({
-        x: prev.x + deltaY * 0.005, // Vertical rotation (pitch)
-        y: prev.y + deltaX * 0.005, // Horizontal rotation (yaw)
-        z: prev.z,
+      setCamera((prev) => ({
+        ...prev,
+        rotation: {
+          x: prev.rotation.x + deltaY * 0.005,
+          y: prev.rotation.y + deltaX * 0.005,
+          z: prev.rotation.z,
+        },
       }))
 
-      setLastMousePos({ x: e.clientX, y: e.clientY })
+      setMouseState((prev) => ({
+        ...prev,
+        lastPosition: { x: e.clientX, y: e.clientY },
+      }))
     }
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
-      setCameraPosition((prev) => ({
+      setCamera((prev) => ({
         ...prev,
-        z: prev.z + e.deltaY * 0.001, // Zoom in/out
+        position: {
+          ...prev.position,
+          z: prev.position.z + e.deltaY * 0.001,
+        },
       }))
     }
 
-    // Add event listeners
     gl.canvas.addEventListener("mousedown", handleMouseDown as EventListener)
     window.addEventListener("mouseup", handleMouseUp as EventListener)
     window.addEventListener("mousemove", handleMouseMove as EventListener)
@@ -234,8 +274,8 @@ function useShader(width: number, height: number) {
 
     const render = () => {
       const modelViewMatrix = createModelViewMatrix(
-        cameraPosition,
-        cameraRotation
+        camera.position,
+        camera.rotation
       )
 
       const modelViewLocation = gl.getUniformLocation(
@@ -244,7 +284,6 @@ function useShader(width: number, height: number) {
       )
       gl.uniformMatrix4fv(modelViewLocation, false, modelViewMatrix)
 
-      // UNIFORMS
       const colorLocation = gl.getUniformLocation(program, "color")
       gl.uniform3f(colorLocation, 1.0, 0.2, 1.0)
 
@@ -259,7 +298,6 @@ function useShader(width: number, height: number) {
 
     render()
 
-    // Cleanup
     return () => {
       cancelAnimationFrame(animationFrameId)
       gl.canvas.removeEventListener(
@@ -274,22 +312,20 @@ function useShader(width: number, height: number) {
     gl,
     vertexShader,
     fragmentShader,
-    isDragging,
-    lastMousePos,
-    cameraPosition,
-    cameraRotation,
+    mouseState.isDragging,
+    camera,
     width,
     height,
   ])
 
-  const status = () => cameraPosition
-
   return {
-    status,
+    status: () => camera.position,
     gl,
     setGl,
-    setVertShaderPath,
-    setFragShaderPath,
+    setVertShaderPath: (path: string) =>
+      setShaderState((prev) => ({ ...prev, vertPath: path })),
+    setFragShaderPath: (path: string) =>
+      setShaderState((prev) => ({ ...prev, fragPath: path })),
   }
 }
 
