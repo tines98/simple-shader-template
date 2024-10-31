@@ -3,10 +3,8 @@ precision mediump float;
 uniform vec2 resolution;
 uniform vec3 color;
 
-// varying vec2 pos;
+varying vec2 vUv;
 
 void main() {
-
-  // vec2 uv = pos / resolution;
-  gl_FragColor = vec4(color, 1.0);  // Orange color
+  gl_FragColor = vec4(vUv, 1.0, 1.0);  // Orange color
 }
